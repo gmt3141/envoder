@@ -360,6 +360,8 @@ class Job:
             "-c:v", self.args.video_encoder,
             "-filter:v", "scale=%d:-2" % self.width
         ]
+        if args.faststart:
+            video_options += ["-movflags", "+faststart"]
         audio_options = [
             "-c:a", self.args.audio_encoder
         ]
