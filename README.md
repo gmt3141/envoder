@@ -1,11 +1,11 @@
-#Batch encoder for VOD websites
+# Batch encoder for VOD websites
 
-##Usage
+## Usage
 
 
     ./envoder [optional arguments]
 
-###Optional Arguments:
+### Optional Arguments:
 
 `--help`
 
