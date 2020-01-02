@@ -217,23 +217,13 @@ FFMPEG_SUFFIX = ""
 # Global variables                                                            #
 ###############################################################################
 
-# FFmpeg executable binaries
-if sys.platform.startswith("win"):
-    FFMPEG_BIN  = os.path.join(FFMPEG_DIR, "ffmpeg%s.exe" % FFMPEG_SUFFIX)
-    FFPROBE_BIN = os.path.join(FFMPEG_DIR, "ffprobe%s.exe" % FFMPEG_SUFFIX)
-else:
-    FFMPEG_BIN  = os.path.join(FFMPEG_DIR, "ffmpeg%s" % FFMPEG_SUFFIX)
-    FFPROBE_BIN = os.path.join(FFMPEG_DIR, "ffprobe%s" % FFMPEG_SUFFIX)
-
 # Define the global arguments to pass to FFmpeg.
 FFMPEG_ARGS = [
-    FFMPEG_BIN,
-    "-y",
+    "-y"
 ]
 
 # Define the global arguments to pass to FFPROBE.
 FFPROBE_ARGS = [
-    FFPROBE_BIN,
     "-v", "error",
     "-select_streams", "v:0",
     "-show_entries", "stream=width,height,duration",
@@ -352,6 +342,14 @@ class Job:
 
     def process(self):
         logger.info("Encoding: %s => %s" % (self.source, self.destination))
+
+        if sys.platform.startswith("win"):
+            ffmpeg = os.path.join(self.args.ffmpeg_dir,
+                                  "ffmpeg%s.exe" % self.args.ffmpeg_suffix)
+        else:
+            ffmpeg = os.path.join(self.args.ffmpeg_dir,
+                                  "ffmpeg%s" % self.args.ffmpeg_suffix)
+
         input_options = [
             "-i", self.source
         ]
@@ -360,7 +358,7 @@ class Job:
             "-c:v", self.args.video_encoder,
             "-filter:v", "scale=%d:-2" % self.width
         ]
-        if args.faststart:
+        if self.args.faststart:
             video_options += ["-movflags", "+faststart"]
         audio_options = [
             "-c:a", self.args.audio_encoder
@@ -381,8 +379,8 @@ class Job:
                 subtitle_options += ["-c:s", "srt"]
             else:
                 subtitle_options += ["-c:s", "mov_text"]
-        arg_list = FFMPEG_ARGS + input_options + subtitle_options \
-            + video_options + audio_options + output_options
+        arg_list = [ffmpeg] + FFMPEG_ARGS + input_options + subtitle_options \
+                   + video_options + audio_options + output_options
         start_datetime = datetime.datetime.now()
         process = subprocess.run(arg_list, text=True, capture_output=True)
         try:
@@ -418,7 +416,14 @@ class Source:
         self.introspect()
 
     def introspect(self):
-        arg_list = FFPROBE_ARGS + [self.video]
+        if sys.platform.startswith("win"):
+            ffprobe = os.path.join(self.args.ffmpeg_dir,
+                                   "ffprobe%s.exe" % self.args.ffmpeg_suffix)
+        else:
+            ffprobe = os.path.join(self.args.ffmpeg_dir,
+                                   "ffprobe%s" % self.args.ffmpeg_suffix)
+
+        arg_list = [ffprobe] + FFPROBE_ARGS + [self.video]
         process = subprocess.run(arg_list, text=True, capture_output=True)
         try:
             width, height, duration = process.stdout.strip().split("x")
