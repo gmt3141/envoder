@@ -102,16 +102,6 @@ INPUT_DIRECTORIES = [
 OUTPUT_DIRECTORY = os.path.join(os.path.abspath(os.path.curdir),
                                 "encoded_videos")
 
-# Summary file format
-#
-# Script writes a summary file on each run with filename:
-#   envoder-yyyy-mm-dd_hh-mm-ss.{csv,json,yml,yaml,xml}
-#
-# Default value is 'csv'
-#
-# On the command line, specify as '-f yml' or '--summary-format yml'
-SUMMARY_FORMAT = "csv"
-
 # Set this to True to search sub-directories within the input
 # directories.
 #
@@ -380,7 +370,6 @@ class Source:
         self._width = 0
         self._height = 0
         self._duration = 0
-        self._summary = None
         self._introspect()
         self._target_dir = os.path.join(self._args.output_dir, self._md5)
 
@@ -395,7 +384,6 @@ class Source:
             return
 
         self._check_target_dir()
-        self._open_summary_file()
         self._copy_files()
         jobs = []
         for resolution in self._args.resolutions:
@@ -421,10 +409,6 @@ class Source:
                 logger.info("Ellapsed time: %s" % seconds_to_str(seconds, 3))
             else:
                 logger.error("Nothing to do in batch encode.")
-
-        if self._summary is not None:
-            self._summary.close()
-
 
     def _encode(self, jobs):
         if sys.platform.startswith("win"):
@@ -527,18 +511,6 @@ class Source:
         elif not os.path.isdir(self._target_dir):
             self._error = "Target path is not a directory"
             logger.error("%s: %s" % (self._error, self._target_dir))
-
-    def _open_summary_file(self):
-        now = datetime.datetime.now()
-        summary_file = "envoder-%04d-%02d-%02d_%02d-%02d-%02d%s%s" \
-                       % (now.year, now.month, now.day, now.hour, now.minute,
-                          now.second, os.path.extsep, self._args.summary_format)
-        summary_path = os.path.join(self._args.output_dir, summary_file)
-        try:
-            self._summary = open(summary_path, "w")
-        except Exception as e:
-            self._summary = None
-            logger.error("Can't create summary file: %s" % summary_path)
 
     def _introspect(self):
         if sys.platform.startswith("win"):
@@ -684,7 +656,6 @@ def show_defaults():
     for d in INPUT_DIRECTORIES:
         pr1(d)
     pr2("-o, --output-directory", OUTPUT_DIRECTORY)
-    pr2("-f, --summary-format", SUMMARY_FORMAT)
     pr2("-r, --recursive", b(RECURSIVE))
     pr2("-w, --overwrite", b(OVERWRITE))
     pr2("-t, --shared-tags", b(SHARED_TAGS))
@@ -796,18 +767,6 @@ def parse_output_dir(value):
     return output_dir
 
 
-def parse_summary_format(value):
-    if value[0] == ".":
-        summary_format = value.lower()[1:]
-    else:
-        summary_format = value.lower()
-    valid_formats = ("csv", "json", "yml", "yaml", "xml")
-    if summary_format not in valid_formats:
-        raise ArgError("Summary format must be one of %s" \
-                       % ", ".join(valid_formats))
-    return summary_format
-
-
 def parse_input_formats(value):
     input_formats = [fmt.lower() for fmt in value.split(",")]
     for input_format in input_formats:
@@ -880,10 +839,6 @@ def parse_args():
 
     parser.add_argument("-o", "--output-dir", help="output directory",
         metavar="DIR", type=parse_output_dir, default=OUTPUT_DIRECTORY)
-
-    parser.add_argument("-f", "--summary-format",
-        help="summary file format (csv, json, yml, yaml, xml)",
-        metavar="FILE", type=parse_summary_format, default=SUMMARY_FORMAT)
 
     parser.add_argument("-r", "--recursive",
         help="search directories recursively",
