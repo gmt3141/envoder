@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
+# -*- Mode: Python; py-indent-offset: 4; tab-width: 4; indent-tabs-mode: nil -*-
 
 ###############################################################################
-# Batch Encoder for VOD Websites                                              #
-# Copyright (C) 2019  Ghorban M. Tavakoly <gmt3141@gmail.com>                 #
+# envoder: Batch encoder for VOD archiving and websites.                      #
+# Copyright (C) 2020  Ghorban M. Tavakoly <gmt3141@gmail.com>                 #
 #                                                                             #
 # This program is free software: you can redistribute it and/or modify        #
 # it under the terms of the GNU General Public License as published by        #
@@ -19,7 +20,7 @@
 ###############################################################################
 
 import argparse
-import codecs
+import collections
 import datetime
 import hashlib
 import logging
@@ -33,8 +34,8 @@ import sys
 ###############################################################################
 
 __author__    = "Ghorban M. Tavakoly"
-__date__      = "2020/01/01" # 1 January 2020
-__version__   = "0.1"
+__date__      = "2020/01/07" # 7 January 2020
+__version__   = "0.2"
 __doc__       = "Batch encoder for VOD websites"
 __copyright__ = "Copyright (c) 2020 %s" % __author__
 __email__     = "gmt3141@gmail.com"
@@ -48,35 +49,28 @@ __url__       = __website__
 # Default output directory name
 OUT_DIR_NAME = "encoded_videos"
 
-# The minimum severity for an event to be logged. Levels
-# from least severe to most servere are "debug", "info",
-# "warning", "error", and "critical".
-# On the command line, specify as "--logging-level error"
-LOGGER_LEVEL = logging.INFO
-
 # The format string for console logger
 CONSOLE_LOGGER_FORMAT = "%(levelname)s: %(message)s"
 
 # The format string for file/rotating file handlers
-FILE_LOGGER_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+FILE_LOGGER_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 
 # Filename for file/rotating file logger.
 FILE_LOGGER_FILENAME = "envoder.log"
 
-# The minimum severity for an event to be logged. Levels
-# from least severe to most servere are "debug", "info",
-# "warning", "error", and "critical". On the command line,
-# specify as "-l info"
-FILE_LOGGER_LEVEL = logging.NOTSET
+# The minimum severity for an event to be logged to file-based loggers.
+# Levels from least severe to most servere are 'debug', 'info',
+# 'warning', 'error', and 'critical'.
+FILE_LOGGER_LEVEL = logging.DEBUG
 
-# Rotate global rotating logger if the file reached this size.
-# Set it to 0 for unlimited file size (no rotating logger)
-# We set it to 1 MiB.
+# Rotate global rotating logger if the file reached this size. Set it to
+# '0' for unlimited file size (no rotating logger).
+# We set it to '1 MiB'.
 ROTATING_LOGGER_FILESIZE = 1024 * 1024
 
 # Maximum number of rotated logger's file count.
-# Set it to 0 for disabling log rotation.
-ROTATING_LOGGER_FILECOUNT = 9
+# Set it to '0' for disabling log rotation.
+ROTATING_LOGGER_COUNT = 9
 
 ###############################################################################
 # Default values command line arguments                                       #
@@ -84,28 +78,39 @@ ROTATING_LOGGER_FILECOUNT = 9
 
 # Input directories to search for video files.
 # On command line, specify as:
-#   * unix and linux: -i /path/to/dir1:/path/to/dir2:....
-#   * windows: -i \path\to\dir1;\path\to\dir2\...
+#   * unix and linux: '-i /path/to/dir1:/path/to/dir2:....'
+#   * windows: '-i \path\to\dir1;\path\to\dir2\...'
 #
 # Default input directories are all folders in current working directory
 # (except 'encoded_videos')
 #
-# You can use --input-directories too.
-INPUT_DIRECTORIES = os.path.pathsep.join([
+# You can use '--input-directories' too.
+INPUT_DIRECTORIES = [
     os.path.abspath(entry)
     for entry in os.listdir(os.path.curdir)
     if os.path.isdir(entry) and not entry.endswith(OUT_DIR_NAME)
-])
+]
 
 # Output directory to store encoded videos
 # On command line, specify as:
-#   * unix and linux: -o /path/to/dir
-#   * windows: -o \path\to\dir
+#   * unix and linux: '-o /path/to/dir'
+#   * windows: '-o \path\to\dir'
 #
-# Default value is ./encoded_videos
+# Default value is './encoded_videos'
 #
-# You can use --output-directory too.
-OUTPUT_DIRECTORY = os.path.join(os.path.curdir, "encoded_videos")
+# You can use '--output-directory' too.
+OUTPUT_DIRECTORY = os.path.join(os.path.abspath(os.path.curdir),
+                                "encoded_videos")
+
+# Summary file format
+#
+# Script writes a summary file on each run with filename:
+#   envoder-yyyy-mm-dd_hh-mm-ss.{csv,json,yml,yaml,xml}
+#
+# Default value is 'csv'
+#
+# On the command line, specify as '-f yml' or '--summary-format yml'
+SUMMARY_FORMAT = "csv"
 
 # Set this to True to search sub-directories within the input
 # directories.
@@ -115,19 +120,29 @@ RECURSIVE = False
 
 # Set this to True to overwrite existing video files.
 #
-# On the command line, specify as '-w' or --overwrite.
+# On the command line, specify as '-w' or '--overwrite.'
 OVERWRITE = False
 
-# List of video formats to process. Other file formats in the
-# input directories will be ignored.
+# For multi-video directory, share signle tags file.
 #
-# On the command line, specify as '--input-formats mkv,mp4'
+# On the command line, specify as '-t' or '--shared-tags'.
+SHARED_TAGS = False
+
+# For multi-video directory, share signle description file.
+#
+# On the command line, specify as '-d' or '--shared-description'.
+SHARED_DESCRIPTION = False
+
+# List of video formats to process. Other file formats in the input
+# directories will be ignored.
+#
+# On the command line, specify as '-I mkv,mp4' or '--input-formats mkv,mp4'
 INPUT_FORMATS = ["avi", "mkv", "m4v", "mp4", "mpg", "vp9", "wmv"]
 
 # Target format for converted videos. Use one of 'mp4', 'mkv', or
 # other container formats supported by FFmpeg.
 #
-# On the command line, specify as '--output-format mp4'.
+# On the command line, specify as '-O mp4' or '--output-format mp4'.
 OUTPUT_FORMAT = "mp4"
 
 # Video encoder to use. Use one of h264, x264, h264, mpeg4 variants
@@ -135,14 +150,14 @@ OUTPUT_FORMAT = "mp4"
 #
 # To see supported encoders, run `ffmpeg -encoders`
 #
-# On the command line, specify as '--video-encoder h264'
+# On the command line, specify as '-v h264' or '--video-encoder h264'
 VIDEO_ENCODER = "libx264"
 
 # Audio encoder to use. Use one of mp3, aac, ogg variants for VODs.
 #
 # To see supported encoders, run `ffmpeg -encoders`
 #
-# On the command line, specify as '--audio-encoder aac'
+# On the command line, specify as '-a aac' or '--audio-encoder aac'
 
 AUDIO_ENCODER = "mp3"
 
@@ -160,17 +175,16 @@ AUDIO_ENCODER = "mp3"
 #   1920 - 0.1 x 1920 <= video_width <= 1920 + 0.1 x 1920
 #   or 1728 <= video_width <= 2112
 #
-# On the command line, specify as --tolerance 0.1
+# On the command line, specify as '--tolerance 0.1'
 TOLERANCE = 0.1
 
-# The width and height of the output video, in the format '1280x720'.
-# On the command line, specify as '-d 1280x720'. You can convert one
-# file to multiple resolutions with sparating resolutions with a
-# comma.
+# Output video resolutions.
 #
-# On the command line, specify as '--dimensions 1920x1080,1280x720'.
-DIMENSIONS = "7680x4320,3840x2160,2560x1440,1920x1080,1280x720," \
-             "854x480,640x360,426x240,256x144"
+# You can convert one file to multiple resolutions with sparating
+# resolutions with a comma.
+#
+# On the command line, specify as '--resolutions 1080,720,480'.
+RESOLUTIONS = [1080, 720, 560, 480, 360, 240, 180]
 
 # You can add -movflags +faststart as an output option if your videos are
 # going to be viewed in a browser. This will move some information to the
@@ -179,39 +193,56 @@ DIMENSIONS = "7680x4320,3840x2160,2560x1440,1920x1080,1280x720," \
 # to use a video service such as YouTube. YouTube ​recommends using faststart,
 # so they can begin re-encoding before uploads complete.
 #
-# One the command lkine, specify as --faststart
+# One the command lkine, specify as '-s' or '--faststart'
 FASTSTART = False
 
 # Set this to True to upscale videos to higher resolutions.
 #
-# On the command line, specify as '--upscale'.
+# On the command line, specify as '-u' or '--upscale'.
 UPSCALE = False
+
+# Batch encode
+#
+# Encode all resolutions in parallel.
+#
+# On the command line, specify as '-b' or '--batch'
+BATCH = False
 
 # Copy original video.
 #
-# On the command line, specify as '--copy-original'
+# On the command line, specify as '-c' or '--copy-original'
 COPY_ORIGINAL = False
 
 # Directory of the FFmpeg executable binary. Set this to the full path
 # of the directory containing FFmpeg executables (ffmpeg and ffprobe).
 #
 # On the command line, specify as:
-#   * unix and linux: --ffmpeg-dir /path/to/ffmpeg_dir
-#   * windows: --ffmpeg-dir \path\to\ffmpeg_dir
+#   * unix and linux: '--ffmpeg-dir /path/to/ffmpeg_dir'
+#   * windows: '--ffmpeg-dir \path\to\ffmpeg_dir'
 if sys.platform.startswith("win"):
     FFMPEG_DIR = "."
 else:
     FFMPEG_DIR = "/usr/bin"
 
 # If you have mutiple version of FFmpeg, and FFmpeg binaries named like:
-#   * ffmpeg-4.2.1.exe, ffprobe-4.2.1.exe
-#   * ffmpeg-3.1.0.exe, ffprobe-3.1.0.exe
-#   * ffmpeg-dev.exe, ffprobe-dev.exe
-# you can use them using --ffmpeg-suffix command line argument.
-# For above FFmpeg binaries use -4.2.1, -3.1.0 or -dev respectively.
+#   * 'ffmpeg-4.2.1.exe', 'ffprobe-4.2.1.exe'
+#   * 'ffmpeg-3.1.0.exe', 'ffprobe-3.1.0.exe'
+#   * 'ffmpeg-dev.exe', 'ffprobe-dev.exe'
+# you can use them using '--ffmpeg-suffix' command line argument.
+# For above FFmpeg binaries use '-4.2.1', '-3.1.0' or '-dev' respectively.
 #
-# On the command line specify as --ffmpeg-suffix -4.2.1
+# On the command line specify as '--ffmpeg-suffix -4.2.1'
 FFMPEG_SUFFIX = ""
+
+# The minimum severity for an event to be logged to console. Levels from
+# least severe to most servere are 'debug', 'info', 'warning', 'error',
+# and 'critical'.
+#
+# NOTE: This affects console logger and has no effect on file-based
+# loggers.
+#
+# On the command line, specify as '-l error' or '--logging-level error'
+LOGGING_LEVEL = logging.INFO
 
 ###############################################################################
 # Global variables                                                            #
@@ -225,22 +256,38 @@ FFMPEG_ARGS = [
 # Define the global arguments to pass to FFPROBE.
 FFPROBE_ARGS = [
     "-v", "error",
+    "-show_entries",
+    "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
     "-select_streams", "v:0",
-    "-show_entries", "stream=width,height,duration",
-    "-of", "csv=s=x:p=0"
+    "-show_entries",
+    "stream=width,height"
 ]
 
 # Initiate logging before any executable code.
-logger = logging.getLogger("encode")
+logger = logging.getLogger("enover")
 
 ###############################################################################
-# Code                                                                        #
+# Codes                                                                       #
 ###############################################################################
 
-# change file extension
-def chext(filepath, newext):
-    return "%s%s%s" % (os.path.splitext(filepath)[0], os.path.extsep, newext)
+#==============================================================================
+# Exceptions
+#------------------------------------------------------------------------------
+# Exceptions used in script
+#==============================================================================
 
+class Error(Exception):
+    pass
+
+
+class ArgError(argparse.ArgumentTypeError):
+    pass
+
+#==============================================================================
+# Utility functions
+#------------------------------------------------------------------------------
+# Some useful functions
+#==============================================================================
 
 # calculate md5sum of given file
 def md5sum(filename, blocksize=65536):
@@ -251,324 +298,308 @@ def md5sum(filename, blocksize=65536):
     return hash.hexdigest()
 
 
-class MetaData:
+# os.walk error handler
+def on_walk_error(exception):
+    logging.error("Cannot read directory: %s", exception.filename)
 
-    def __init__(self, width, height, duration, name, tags):
-        if not isinstance(width, (int, str)):
-            raise Exception("Invalid type for MetaData.width")
-        if not isinstance(height, (int, str)):
-            raise Exception("Invalid type for MetaData.height")
-        if not isinstance(duration, (int, float, str)):
-            raise Exception("Invalid type for MetaData.height")
-        self.width = width
-        self.height = height
-        self.duration = duration
-        if isinstance(name, str):
-            self.name = name.strip()
+
+# change file extension
+def change_extension(filepath, newext):
+    return "%s%s%s" % (os.path.splitext(filepath)[0], os.path.extsep, newext)
+
+
+# copy file
+def copy_file(source_path, target_path, overwrite):
+    if not os.path.exists(target_path) or overwrite:
+        logger.info("Copy %s -> %s" % (source_path, target_path))
+        try:
+            shutil.copy2(source_path, target_path)
+        except Exception as e:
+            logger.error("Error copying file: %s" % e)
+    else:
+        logger.info("Target exists. Skip copying %s -> '%s'." % (source_path,
+                                                                 target_path))
+
+
+# function execution time in seconds
+def ellapsed_seconds(func, *args, **kwargs):
+    #from timeit import timeit
+    #return timeit(lambda: func(*args, **kwargs), number=1)
+    from datetime import datetime
+    start = datetime.now()
+    func(*args, **kwargs)
+    dt = datetime.now() - start
+    return dt.total_seconds()
+
+
+# change seconds to s or m:ss or h:mm:ss format.
+def seconds_to_str(seconds, decimals = 0):
+    if isinstance(seconds, (int, float, str)):
+        fmt = "%%.%df" % decimals
+        seconds = float(fmt % float(seconds))
+
+    if seconds < 60:
+        fmt = "%%.%df seconds" % decimals
+        return fmt % seconds
+    elif seconds < 3600:
+        if decimals > 0:
+            fmt = "%%d:%%0%d.%df minutes" % (3 + decimals, decimals)
         else:
-            logger.error("Invalid name")
-        if isinstance(tags, str):
-            self.tags = tags.strip()
+            fmt = "%%d:%%0%d.%df minutes" % (2 + decimals, decimals)
+        minutes = seconds // 60
+        seconds %= 60
+        return fmt % (minutes, seconds)
+    else:
+        if decimals > 0:
+            fmt = "%%d:%%02d:%%0%d.%df hours" % (3 + decimals, decimals)
         else:
-            logger.debug("Invalid value for tags: '%s'" % str(tags))
-            self.tags = ""
-        if isinstance(width, str):
-            if not width.isnumeric():
-                raise Exception("Invalid number for MetaData.width: "
-                                "'%s'" % width)
-            if "." in width or "e" in width.lower():
-                raise Exception("Invalid integer number for MetaData.width: "
-                                "'%s' (It seems is float number)" % width)
-            self.width = int(width)
-            if self.width < 1:
-                raise Exception("MetaData.width must be positive number: "
-                                "'%s'" % self.width)
-        if isinstance(height, str):
-            if not height.isnumeric():
-                raise Exception("Invalid number for MetaData.height: "
-                                "'%s'" % height)
-            if "." in width or "e" in width.lower():
-                raise Exception("Invalid integer number for MetaData.height: "
-                                "'%s' (It seems is float number)" % height)
-            self.height = int(height)
-            if self.height < 1:
-                raise Exception("MetaData.height must be positive number: "
-                                "'%s'" % self.height)
+            fmt = "%%d:%%02d:%%0%d.%df hours" % (3 + decimals, decimals)
+        hours = seconds // 3600
+        minutes = (seconds - 3600 * hours) // 60
+        seconds %= 60
+        return fmt % (hours, minutes, seconds)
 
-        if isinstance(duration, str):
-            try:
-                self.duration = float(duration)
-            except Exception as e:
-                raise Exception("Invalid number for MetaData.duration: "
-                                "'%s'" % duration)
-            self.duration = float(duration)
-            if self.duration <= 0.0:
-                raise Exception("MetaData.duration must be positive number: "
-                                "'%s'" % self.duration)
+#==============================================================================
+# Source class
+#------------------------------------------------------------------------------
+# Represents each input video and encode it to target resolutions
+#==============================================================================
 
-    def get_duration(self):
-        secs = self.duration
-        if secs < 100.0:
-            duration = "%.1f" % secs
-        elif secs < 100.0 * 60:
-            mins = int(secs / 60)
-            secs = secs - mins * 60
-            duration = "%d:%.1f" % (mins, secs)
-        else:
-            hours = int(secs / 3600)
-            mins = int((secs - 3600 * hours) / 60)
-            secs = secs - hours * 3600 - mins * 60
-            duration = "%d:%d:%1.f" % (hours, mins, secs)
-        return duration
+class Source:
 
-    def __str__(self):
-        return "%s (%dx%d, %s)" % (self.name, self.width, self.height,
-                                   self.get_duration())
-
-    __repr__ = __str__
-
-
-class Job:
-
-    def __init__(self, args, destination, source, subtitle, metadata, width,
-                 height):
-        self.args = args
-        self.destination = destination
-        self.source = source
-        self.subtitle = subtitle
-        self.metadata = metadata
-        self.width = width
-        self.height = height
+    def __init__(self, args, md5, name, video_file, srt_file, tags_file,
+                 description_file):
+        self._error = ""
+        self._args = args
+        self._md5 = md5
+        self._name = name
+        self._video_file = video_file
+        self._srt_file = srt_file
+        self._tags_file = tags_file
+        self._description_file = description_file
+        self._width = 0
+        self._height = 0
+        self._duration = 0
+        self._summary = None
+        self._introspect()
+        self._target_dir = os.path.join(self._args.output_dir, self._md5)
 
     def process(self):
-        logger.info("Encoding: %s => %s" % (self.source, self.destination))
+        logger.info("-" * 72)
+        logger.info("Processing %s" % self)
 
+        self._check_target_dir()
+
+        if self._error != "":
+            logger.error("Skip processing %s: %s" % (self, self._error))
+            return
+
+        self._check_target_dir()
+        self._open_summary_file()
+        self._copy_files()
+        jobs = []
+        for resolution in self._args.resolutions:
+            target_file = "%d%s%s" % (resolution, os.path.extsep,
+                                      self._args.output_format)
+            target_path = os.path.join(self._target_dir, target_file)
+            lower_height = resolution * (1 - self._args.tolerance)
+            if self._height >= lower_height or self._args.upscale:
+                if not os.path.exists(target_path) or self._args.overwrite:
+                    job = (resolution, target_path)
+                    if self._args.batch:
+                        jobs.append(job)
+                    else:
+                        seconds = ellapsed_seconds(self._encode, [job])
+                        logger.info("Ellapsed time: %s" \
+                                    % seconds_to_str(seconds, 3))
+                else:
+                    logger.info("Skip encoding %dp. Target exists: %s" \
+                                % (resolution, target_path))
+        if self._args.batch:
+            if len(jobs) > 0:
+                seconds = ellapsed_seconds(self._encode, jobs)
+                logger.info("Ellapsed time: %s" % seconds_to_str(seconds, 3))
+            else:
+                logger.error("Nothing to do in batch encode.")
+
+        if self._summary is not None:
+            self._summary.close()
+
+
+    def _encode(self, jobs):
         if sys.platform.startswith("win"):
-            ffmpeg = os.path.join(self.args.ffmpeg_dir,
-                                  "ffmpeg%s.exe" % self.args.ffmpeg_suffix)
+            ffmpeg = os.path.join(self._args.ffmpeg_dir,
+                                  "ffmpeg%s.exe" % self._args.ffmpeg_suffix)
         else:
-            ffmpeg = os.path.join(self.args.ffmpeg_dir,
-                                  "ffmpeg%s" % self.args.ffmpeg_suffix)
+            ffmpeg = os.path.join(self._args.ffmpeg_dir,
+                                  "ffmpeg%s" % self._args.ffmpeg_suffix)
 
-        input_options = [
-            "-i", self.source
-        ]
-        subtitle_options = []
-        video_options = [
-            "-c:v", self.args.video_encoder,
-            "-filter:v", "scale=%d:-2" % self.width
-        ]
-        if self.args.faststart:
-            video_options += ["-movflags", "+faststart"]
-        audio_options = [
-            "-c:a", self.args.audio_encoder
-        ]
-        output_options = [
-            "-f", self.args.output_format,
-            self.destination
-        ]
-        if self.subtitle:
+        if len(jobs) == 1:
+            logger.info("Encode -> %s" % jobs[0][1])
+        else:
+            logger.info("Batch encode to %s resolutions" \
+                        % ", ".join("%d" % r for r, tp in jobs))
+
+        input_options = ["-i", self._video_file]
+        if self._srt_file:
+            input_options += ["-i", self._srt_file]
             subtitle_options = [
-                "-i", self.subtitle,
                 "-c:s", "srt",
                 "-map", "0:0",  # map video stream
                 "-map", "0:1",  # map audio stram
                 "-map", "1:0"   # map srt stream
             ]
-            if self.args.output_format == "mkv":
+            if self._args.output_format == "mkv":
                 subtitle_options += ["-c:s", "srt"]
             else:
                 subtitle_options += ["-c:s", "mov_text"]
-        arg_list = [ffmpeg] + FFMPEG_ARGS + input_options + subtitle_options \
-                   + video_options + audio_options + output_options
-        start_datetime = datetime.datetime.now()
+        else:
+            subtitle_options = []
+
+        options = []
+        for resolution, target_path in jobs:
+            if len(jobs) > 1:
+                logger.info("Batch encode -> %s" % target_path)
+            options += subtitle_options + [
+                "-c:v", self._args.video_encoder,
+                "-filter:v", "scale=-2:%d" % resolution
+            ]
+            if self._args.faststart:
+                options += ["-movflags", "+faststart"]
+            options += ["-c:a", self._args.audio_encoder]
+            options += ["-f", self._args.output_format, target_path]
+
+        arg_list = [ffmpeg] + FFMPEG_ARGS + input_options + options
         process = subprocess.run(arg_list, text=True, capture_output=True)
         try:
             stdout = process.stdout
         except:
-            raise
-        retcode = process.returncode
-        if retcode == 0:
-            elapsed = datetime.datetime.now() - start_datetime
-            logger.info("Elapsed time: %.03f seconds" \
-                % (elapsed.seconds + elapsed.microseconds / 1000000))
-        else:
-            logger.debug("Error encoding: %s" % self.destination)
-            print(" ".join(arg_list))
-            raise subprocess.CalledProcessError(retcode, arg_list)
-
-    def process_two_pass(self):
-        pass
-
-
-class Source:
-
-    def __init__(self, args, input_dir, name, video, subtitle = None,
-                 tags = None):
-        self.args = args
-        self.input_dir = input_dir
-        self.name = name
-        self.video = video
-        self.subtitle = subtitle
-        self.tags = tags
-        self.metadata = None
-        self.destination_dir = os.path.join(args.output_dir, md5sum(video))
-        self.introspect()
-
-    def introspect(self):
-        if sys.platform.startswith("win"):
-            ffprobe = os.path.join(self.args.ffmpeg_dir,
-                                   "ffprobe%s.exe" % self.args.ffmpeg_suffix)
-        else:
-            ffprobe = os.path.join(self.args.ffmpeg_dir,
-                                   "ffprobe%s" % self.args.ffmpeg_suffix)
-
-        arg_list = [ffprobe] + FFPROBE_ARGS + [self.video]
-        process = subprocess.run(arg_list, text=True, capture_output=True)
-        try:
-            width, height, duration = process.stdout.strip().split("x")
-            self.metadata = MetaData(width, height, duration, self.name,
-                                     self.tags)
-        except:
-            raise
+            raise Error()
         retcode = process.returncode
         if retcode != 0:
+            #print(" ".join(arg_list))
+            logger.error("Error encoding")
             raise subprocess.CalledProcessError(retcode, arg_list)
 
-    def create_destination_dir(self):
-        if not os.path.exists(self.destination_dir):
-            # TODO: check exceptions and errors
-            logger.info("Creating destination directory: %s" \
-                        % self.destination_dir)
-            os.mkdir(self.destination_dir)
-        else:
-            logger.info("Destination directory exists: %s" \
-                        % self.destination_dir)
+    def _copy_files(self):
+        if self._args.copy_original:
+            # original video file
+            extension = os.path.splitext(self._video_file)[1][1:].lower()
+            target_file = "original%s%s" % (os.path.extsep, extension)
+            target_path = os.path.join(self._target_dir, target_file)
+            copy_file(self._video_file, target_path, self._args.overwrite)
 
-    def copy_original_video(self):
-        extension = os.path.splitext(self.video)[1][1:].lower()
-        filename = "original%s%s" % (os.path.extsep, extension)
-        filepath = os.path.join(self.destination_dir, filename)
-        if not os.path.exists(filepath) or self.args.overwrite:
-            logger.info("Copying original video to %s" % filepath)
-            # TODO: check exceptions and errors
-            shutil.copy2(self.video, filepath)
+        name_path = os.path.join(self._target_dir, "name%stxt" % os.path.extsep)
+        if not os.path.exists(name_path) or self._args.overwrite:
+            with open(name_path, "w") as stream:
+                logger.info("Creating name file: %s" % name_path)
+                stream.write(self._name)
         else:
-            logger.info("Original video exists. Skip copying: %s" % filepath)
-        # saving video name
-        filename = "name%stxt" % os.path.extsep
-        filepath = os.path.join(self.destination_dir, filename)
-        if not os.path.exists(filepath) or self.args.overwrite:
-            logger.info("Saving video name: %s" % filepath)
-            # TODO: check exceptions and errors
-            with codecs.open(filepath, "w", "utf8") as stream:
-                stream.write(self.name)
-        else:
-            logger.info("Video name exists. Skip saving: %s" % filepath)
+            logger.info("Name file exists. Skip creating file: %s" % name_path)
 
-    def save_subtitle(self):
-        if self.subtitle is not None:
-            filename = "original%ssrt" % os.path.extsep
-            filepath = os.path.join(self.destination_dir, filename)
-            if not os.path.exists(filepath) or self.args.overwrite:
-                logger.info("Reading, normalizing and saving subtitle: %s" \
-                            % filepath)
-                lines = []
-                with codecs.open(self.subtitle, "r", "utf8") as stream:
-                    for line in stream:
-                        lines.append(line.strip())
-                # TODO: check exceptions and errors
-                with codecs.open(filepath, "w", "utf8") as stream:
-                    for line in lines:
-                        stream.write("%s\n" % line)
-            else:
-                logger.info("Destination subtitle exists. Skip saving: %s" \
-                            % filepath)
-            return filepath
-        else:
-            logger.info("Video has no subtitle.")
-            return None
+        if self._srt_file:
+            # subtitle file
+            target_file = "original%ssrt" % os.path.extsep
+            target_path = os.path.join(self._target_dir, target_file)
+            copy_file(self._srt_file, target_path, self._args.overwrite)
 
-    def save_tags(self):
-        if self.tags is not None:
-            filename = "tags%stxt" % os.path.extsep
-            filepath = os.path.join(self.destination_dir, filename)
-            if not os.path.exists(filepath) or self.args.overwrite:
-                logger.info("Reading, normalizing and saving tags: %s" \
-                            % filepath)
-                lines = []
-                with open(self.tags) as stream:
-                    for line in stream:
-                        line = line.strip()
-                        if line != "":
-                            for arabic, persian in ARABIC_TO_PERSIAN:
-                                line = line.replace(arabic, persian)
-                            lines.append(line.strip())
-                # TODO: check exceptions and errors
-                with open(filepath, "w") as stream:
-                    for line in lines:
-                        stream.write("%s\n" % line)
-            else:
-                logger.info("Destination tags exists. Skip saving: %s" \
-                            % filepath)
-            return filepath
-        else:
-            logger.info("Video has no tags.")
-            return None
+        if self._tags_file:
+            # tags file
+            target_file = "tags%stxt" % os.path.extsep
+            target_path = os.path.join(self._target_dir, target_file)
+            copy_file(self._tags_file, target_path, self._args.overwrite)
 
-    def encode(self):
-        logger.info("Processing %s (%s)" % (self.metadata.name, self.video))
-        self.create_destination_dir()
-        if self.args.copy_original:
-            self.copy_original_video()
-        subtitle = self.save_subtitle()
-        tags = self.save_tags()
-        for width, height in self.args.dimensions:
-            width1 = width - self.args.tolerance * width
-            # TODO: only uppscale one level. greater level upscales
-            #       will loose quality.
-            if self.metadata.width >= width1 or self.args.upscale:
-                filename = "%d%s%s" % (height, os.path.extsep,
-                                       self.args.output_format)
-                filepath = os.path.join(self.destination_dir, filename)
-                if not os.path.exists(filepath) or self.args.overwrite:
-                    job = Job(self.args, filepath, self.video, subtitle,
-                              self.metadata, width, height)
-                    job.process()
-                else:
-                    logger.info("Encoded video exists. Skip encoding: %s" \
-                                % filepath)
+        if self._description_file:
+            # subtitle file
+            target_file = "description%stxt" % os.path.extsep
+            target_path = os.path.join(self._target_dir, target_file)
+            copy_file(self._description_file, target_path, self._args.overwrite)
+
+    def _check_target_dir(self):
+        if not os.path.exists(self._target_dir):
+            try:
+                logger.info("Creating target directory: '%s'" \
+                            % self._target_dir)
+                os.mkdir(self._target_dir)
+            except Exception as e:
+                self._error = "Couldn't create directory'"
+                logger.error("%s: %s" % (self._error, e))
+        elif not os.path.isdir(self._target_dir):
+            self._error = "Target path is not a directory"
+            logger.error("%s: %s" % (self._error, self._target_dir))
+
+    def _open_summary_file(self):
+        now = datetime.datetime.now()
+        summary_file = "envoder-%04d-%02d-%02d_%02d-%02d-%02d%s%s" \
+                       % (now.year, now.month, now.day, now.hour, now.minute,
+                          now.second, os.path.extsep, self._args.summary_format)
+        summary_path = os.path.join(self._args.output_dir, summary_file)
+        try:
+            self._summary = open(summary_path, "w")
+        except Exception as e:
+            self._summary = None
+            logger.error("Can't create summary file: %s" % summary_path)
+
+    def _introspect(self):
+        if sys.platform.startswith("win"):
+            ffprobe = os.path.join(self._args.ffmpeg_dir,
+                                   "ffprobe%s.exe" % self._args.ffmpeg_suffix)
+        else:
+            ffprobe = os.path.join(self._args.ffmpeg_dir,
+                                   "ffprobe%s" % self._args.ffmpeg_suffix)
+
+        arg_list = [ffprobe] + FFPROBE_ARGS + [self._video_file]
+        process = subprocess.run(arg_list, text=True, capture_output=True)
+        try:
+            width, height, duration = process.stdout.strip().split()
+            self._width = int(width)
+            self._height = int(height)
+            self._duration = round(float(duration))
+        except:
+            #print (" ".join(arg_list))
+            logger.error("Error processing video dimensions: '%s'" \
+                         % self._video_file)
+        retcode = process.returncode
+        if retcode != 0:
+            logger.error("Subprocess 'ffprobe' returned error code: '%d'" \
+                         % retcode)
+            logger.error(subprocess.CalledProcessError(retcode, arg_list))
 
     def __str__(self):
-        attrs = []
-        if self.metadata is not None:
-            attrs.append(str(self.metadata))
-        if self.subtitle is not None:
-            attrs.append("subtitle")
-        if self.tags is not None:
-            attrs.append("tags")
-        return "%s: %s" % (self.video, ", ".join(attrs))
+        extra = []
+        if self._srt_file:
+            extra.append("subtitle")
+        if self._tags_file:
+            extra.append("tags")
+        if self._description_file:
+            extra.append("description")
+        if len(extra) > 0:
+            extra_str = ", " + ", ".join(extra)
+        else:
+            extra_str = ""
+        return "%s (%s, %dx%d, Duration: %s%s)" \
+               % (self._video_file, self._name, self._width, self._height,
+                  seconds_to_str(self._duration), extra_str)
 
-    def __repr__(self):
-        return self.name
+    __repr__ = __str__
 
+#==============================================================================
+# scan_sources function
+#------------------------------------------------------------------------------
+# Scans input directories and return all videos as list of 'Source'
+# class instances.
+#==============================================================================
 
-def arg_error(message):
-    raise argparse.ArgumentTypeError(message)
-
-
-def on_walk_error(exception):
-    logging.error("Cannot read directory: %s", exception.filename)
-
-
-def scan_source_videos(args):
-    sources = []
+def scan_sources(args):
+    sources = collections.OrderedDict()
     for input_dir in args.input_dirs:
         for dirpath, subdirs, filenames in os.walk(input_dir,
                                                    onerror=on_walk_error):
             video_files = []
             subtitle_files = []
             tags_files = []
+            description_files = []
+
             for filename in filenames:
                 filepath = os.path.join(dirpath, filename)
                 extension = os.path.splitext(filename)[1][1:].lower()
@@ -578,38 +609,122 @@ def scan_source_videos(args):
                     subtitle_files.append(filepath)
                 elif extension == "tag":
                     tags_files.append(filepath)
+                elif extension == "txt":
+                    description_files.append(filepath)
+                else:
+                    logger.info("Skip file: '%s'" % filepath)
+
             for video_file in video_files:
+                subtitle_file = None
+                tags_file = None
+                description_file = None
+                md5 = md5sum(video_file)
+
                 if len(video_files) == 1:
                     name = os.path.basename(dirpath)
+                    if len(subtitle_files) > 0:
+                        subtitle_file = subtitle_files[0]
+                    if len(tags_files) > 0:
+                        tags_file = tags_files[0]
+                    if len(description_files) > 0:
+                        description_file = description_files[0]
                 else:
                     name = os.path.splitext(os.path.basename(video_file))[0]
-                video_name = name.replace(".", " ")
-                # find subtitle file
-                subtitle_file = chext(video_file, "srt")
-                if subtitle_file not in subtitle_files:
-                    # single video in dir, so choose first subtitle file
-                    if len(video_files) == 1 and len(subtitle_files) > 0:
-                        subtitle_file = subtitle_files[0]
-                    else:
+                    # find subtitle file
+                    subtitle_file = change_extension(video_file, "srt")
+                    if subtitle_file not in subtitle_files:
                         subtitle_file = None
-                # find tags file
-                tags_file = chext(video_file, "tag")
-                if tags_file not in tags_files:
-                    # multiple videos share single tag file.
-                    if len(video_files) > 0 and len(tags_files) == 1:
+                    # find tags file
+                    if args.shared_tags and len(tags_files) == 1:
                         tags_file = tags_files[0]
-                    else:
-                        tags_file = None
-                source = Source(args, input_dir, video_name, video_file,
-                                subtitle_file, tags_file)
-                logger.info("Adding video source: %s" % source)
-                sources.append(source)
+                    elif len(tags_files) > 0:
+                        tags_file = change_extension(video_file, "tag")
+                        if tags_file not in tags_files:
+                            tags_file = None
+                    # find description file
+                    if args.shared_description and len(description_files) == 1:
+                        description_file = description_files[0]
+                    elif len(description_files) > 0:
+                        description_file = change_extension(video_file, "txt")
+                        if description_file not in description_files:
+                            description_file = None
+
+                video_name = name.replace(".", " ").replace("_", " ")
+                source = Source(args, md5, video_name, video_file,
+                                subtitle_file, tags_file, description_file)
+                if md5 in sources:
+                    logger.info("Skip duplicated video source: %s" % source)
+                else:
+                    logger.info("Adding video source: %s" % source)
+                    sources[md5] = source
+
             if args.recursive:
                 subdirs.sort()
             else:
                 del subdirs[:]
+
     return sources
 
+#==============================================================================
+# show_defaults function
+#------------------------------------------------------------------------------
+# Shows default value of all command-line arguments on stderr
+#==============================================================================
+
+def show_defaults():
+    pr = lambda s: print(s, file=sys.stderr)
+    pr1 = lambda s: pr("     - %s" % s)
+    pr2 = lambda s1, s2: pr("{:<30}{}".format(s1, s2))
+    b = lambda v: {True: "yes", False: "no"}[v]
+
+    pr("")
+    pr2("-h, --help", b(False))
+    pr2("-D, --defaults", b(False))
+    pr("-i, --input-directories")
+    for d in INPUT_DIRECTORIES:
+        pr1(d)
+    pr2("-o, --output-directory", OUTPUT_DIRECTORY)
+    pr2("-f, --summary-format", SUMMARY_FORMAT)
+    pr2("-r, --recursive", b(RECURSIVE))
+    pr2("-w, --overwrite", b(OVERWRITE))
+    pr2("-t, --shared-tags", b(SHARED_TAGS))
+    pr2("-d, --shared-description", b(SHARED_DESCRIPTION))
+    pr2("-I, --input-formats", ", ".join([f for f in INPUT_FORMATS]))
+    pr2("-O, --output-format", OUTPUT_FORMAT)
+    pr2("-v, --video-encoder", VIDEO_ENCODER)
+    pr2("-a, --audio-encoder", AUDIO_ENCODER)
+    pr2("--tolerance", TOLERANCE)
+    pr2("--resolutions", ", ".join([str(r) for r in RESOLUTIONS]))
+    pr2("-b, --batch", b(BATCH))
+    pr2("-u, --upscale", b(UPSCALE))
+    pr2("-s, --faststart", b(FASTSTART))
+    pr2("-c, --copy-original", b(COPY_ORIGINAL))
+    pr2("--tolerance", TOLERANCE)
+    pr2("--ffmpeg-dir", FFMPEG_DIR)
+    pr2("--ffmpeg-suffix", FFMPEG_SUFFIX)
+    if LOGGING_LEVEL == logging.DEBUG:
+        pr2("--logging-level", "notset")
+    elif LOGGING_LEVEL == logging.NOTSET:
+        pr2("--logging-level", "debug")
+    elif LOGGING_LEVEL == logging.INFO:
+        pr2("--logging-level", "info")
+    elif LOGGING_LEVEL == logging.WARNING:
+        pr2("--logging-level", "warning")
+    elif LOGGING_LEVEL == logging.ERROR:
+        pr2("--logging-level", "error")
+    elif LOGGING_LEVEL == logging.CRITICAL:
+        pr2("--logging-level", "critical")
+    else:
+        pr2("--logging-level", "invalid value")
+    pr2("--version", __version__)
+    pr("")
+
+#==============================================================================
+# setup_logger function
+#------------------------------------------------------------------------------
+# Initialize all loggers (console logger, file logger and rotating file
+# logger)
+#==============================================================================
 
 def setup_logger(args):
     logger.setLevel(logging.INFO)
@@ -622,12 +737,12 @@ def setup_logger(args):
     logger.addHandler(handler)
 
     # global rotating file handler
-    exec_path = os.path.abspath(os.path.expanduser(sys.argv[0]))
-    exec_dir = os.path.dirname(exec_path)
-    logger_filepath = os.path.join(exec_dir, FILE_LOGGER_FILENAME)
+    working_dir = os.path.abspath(os.path.curdir)
+    logger_filepath = os.path.join(working_dir, FILE_LOGGER_FILENAME)
     from logging import handlers
     handler = handlers.RotatingFileHandler(logger_filepath,
-                                           maxBytes=ROTATING_LOGGER_FILESIZE)
+                                           maxBytes=ROTATING_LOGGER_FILESIZE,
+                                           backupCount=ROTATING_LOGGER_COUNT)
     handler.setLevel(FILE_LOGGER_LEVEL)
     formatter = logging.Formatter(FILE_LOGGER_FORMAT)
     handler.setFormatter(formatter)
@@ -635,12 +750,27 @@ def setup_logger(args):
 
     # per execution file handler (saved in args.output_dir)
     logger_filepath = os.path.join(args.output_dir, FILE_LOGGER_FILENAME)
-    handler = logging.FileHandler(logger_filepath)
-    handler.setLevel(FILE_LOGGER_LEVEL)
-    formatter = logging.Formatter(FILE_LOGGER_FORMAT)
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    try:
+        if os.path.exists(logger_filepath):
+            handler = logging.FileHandler(logger_filepath, mode="a")
+        else:
+            handler = logging.FileHandler(logger_filepath)
+        handler.setLevel(FILE_LOGGER_LEVEL)
+        formatter = logging.Formatter(FILE_LOGGER_FORMAT)
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    except Exception as e:
+        if os.path.exists(logger_filepath):
+            logger.error("Couldn't open output log file: %s" % e)
+        else:
+            logger.error("Couldn't create output log file: %s" % e)
 
+#==============================================================================
+# Argument Parsers
+#------------------------------------------------------------------------------
+# In this level, logger is not initialized, so use print(..., file=sys.stderr)
+# for printing information on console
+#==============================================================================
 
 def parse_input_dirs(value):
     input_dirs = []
@@ -648,91 +778,87 @@ def parse_input_dirs(value):
         in_dir = in_dir.strip()
         input_dir = os.path.abspath(os.path.expanduser(in_dir))
         if not os.path.exists(input_dir):
-            arg_error("Input directory dos not exists: '%s'" % input_dir)
+            raise ArgError("Input directory dos not exists: '%s'" % input_dir)
         if input_dir not in input_dirs:
             input_dirs.append(input_dir)
-    logger.info("Input directories set to: '%s'" \
-                 % os.path.pathsep.join(input_dir))
     return input_dirs
 
 
 def parse_output_dir(value):
     output_dir = os.path.abspath(os.path.expanduser(value))
     if not os.path.exists(output_dir):
-        logger.info("Creating output directory: '%s'" % output_dir)
+        print("Creating output directory: '%s'" % output_dir, file=sys.stderr)
         try:
             os.mkdir(output_dir)
         except Exception as e:
-            logger.error("Could not create output directory: '%s'", output_dir)
-    logger.info("Output directory set to: '%s'" % output_dir)
+            raise ArgError("Could not create output directory: '%s'" \
+                           % output_dir)
     return output_dir
 
 
+def parse_summary_format(value):
+    if value[0] == ".":
+        summary_format = value.lower()[1:]
+    else:
+        summary_format = value.lower()
+    valid_formats = ("csv", "json", "yml", "yaml", "xml")
+    if summary_format not in valid_formats:
+        raise ArgError("Summary format must be one of %s" \
+                       % ", ".join(valid_formats))
+    return summary_format
+
+
 def parse_input_formats(value):
-    format_list = [fmt for fmt in value.split(",")]
-    for input_format in format_list:
+    input_formats = [fmt.lower() for fmt in value.split(",")]
+    for input_format in input_formats:
         if input_format.startswith("."):
-            arg_error("Do not specify the leading . on input formats")
-        if not input_format.isalnum():
-            arg_error("Invalid input format: '%s'" % repr(input_format))
-    logger.info("Input formats set to: 's'" % ", ".join(format_list))
-    return format_list
+            raise ArgError("Do not specify the leading . on input formats")
+    return input_formats
 
 
 def parse_output_format(value):
     if value.startswith("."):
-        arg_error("Do not specify the leading . on output format")
+        raise ArgError("Do not specify the leading '.' on output format")
     if value.lower() not in ["mp4", "mkv", "m4v"]:
-        arg_error("Invalid output format (only mp4, mkv, and m4v are "
-                  "supported): " + repr(value))
-    output_format = value.lower()
-    logger.info("Output format set to: '%s'" % output_format)
-    return output_format
+        raise ArgError("Invalid output format (only mp4, mkv, and m4v are "
+                       "supported): " + repr(value))
+    return value.lower()
 
 
 def parse_tolerance(value):
     try:
         tolerance = float(value)
     except Exception as e:
-        logger.error("Invalid value for --dimension-tolerance argument: %s" \
-                     % e)
-    if tolerance < 0 or tolerance > 1:
-        logger.error("Invalid value for --dimension-tolerance argument: %f" \
-                     % tolerance)
+        raise ArgError("Invalid value for tolerance: %s" % tolerance)
+    if tolerance < 0 or tolerance >= 1:
+        raise ArgError("Out of range tolerance value [0..1): %f" % tolerance)
     return tolerance
 
 
-def parse_dimensions(value):
-    dimensions = []
-    for dimension in value.split(","):
-        w_h = dimension.split("x")
-        if len(w_h) == 1:
-            arg_error("Invalid dimension: '%s'\nPlease enter both dimensions "
-                      "in widthxheight format (e.g. 1920x1080):" % dimension)
-        width, height = w_h
+def parse_resolutions(value):
+    resolutions = []
+    for val in value.split(","):
         try:
-            dimension = (int(width), int(height))
-        except Exception as e:
-            arg_error(e)
-        dimensions.append(dimension)
-    logger.info("Output dimensions set to: '%s'" % ", ".join(
-        ["%sx%s" % (width, height) for dim in dimensions]))
-    return dimensions
+            resolution = int(val)
+            if resolution <= 0:
+                raise Exception()
+        except:
+            raise ArgError("Invalid dimension: '%s'" % val)
+        resolutions.append(resolution)
+    return resolutions
 
 
 def parse_ffmpeg_dir(value):
-    ffmpeg_dir = value
-    if "/" in ffmpeg_dir or "\\" in ffmpeg_dir:
-        ffmpeg_dir = os.path.abspath(os.path.expanduser(value))
-        if not os.path.exists(ffmpeg_dir):
-            arg_error("Specified FFmpeg path dos not exists: '%s'" % value)
-    logger.info("FFmpeg executable path set to: %s" % ffmpeg_dir)
+    ffmpeg_dir = os.path.abspath(os.path.expanduser(value))
+    if not os.path.exists(ffmpeg_dir):
+        arg_error("Specified FFmpeg path dos not exists: '%s'" % value)
     return ffmpeg_dir
+
 
 def parse_logging_level(value):
     level = getattr(logging, value.upper(), None)
     if level is None:
-        arg_error("Invalid logging level: '%s'" % repr(value))
+        raise ArgError("Invalid logging level: '%s'" % repr(value))
     return level
 
 
@@ -740,61 +866,78 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description = __doc__,
         epilog = "Submit errors and suggestions to %s" % __url__,
-        usage = "%s [optional arguments]" % sys.argv[0],
-        add_help = False
+        usage = "%s [optional arguments]" % sys.argv[0]
     )
-    parser.add_argument("--help", action="help",
-        help="print this help message and exit")
+
+    parser.add_argument("-D", "--defaults",
+        help="show default value of all arguments and exit",
+        action="store_true", default=False)
 
     parser.add_argument("-i", "--input-dirs",
         help="input directories separated by '%s' character" % os.path.pathsep,
         metavar="DIR%sDIR2%s..." % (os.path.pathsep, os.path.pathsep),
-        type=parse_input_dirs, default=INPUT_DIRECTORIES, required=True)
+        type=parse_input_dirs, default=INPUT_DIRECTORIES)
 
     parser.add_argument("-o", "--output-dir", help="output directory",
         metavar="DIR", type=parse_output_dir, default=OUTPUT_DIRECTORY)
+
+    parser.add_argument("-f", "--summary-format",
+        help="summary file format (csv, json, yml, yaml, xml)",
+        metavar="FILE", type=parse_summary_format, default=SUMMARY_FORMAT)
 
     parser.add_argument("-r", "--recursive",
         help="search directories recursively",
         action="store_true", default=RECURSIVE)
 
-    parser.add_argument("-w", "--overwrite", help="overwrite existing files",
+    parser.add_argument("-w", "--overwrite",
+        help="overwrite existing files",
         action="store_true", default=OVERWRITE)
 
-    parser.add_argument("--input-formats",
+    parser.add_argument("-t", "--shared-tags",
+        help="share tags files for all vidoes in a directory",
+        action="store_true", default=SHARED_TAGS)
+
+    parser.add_argument("-d", "--shared-description",
+        help="share tags files for all vidoes in a directory",
+        action="store_true", default=SHARED_DESCRIPTION)
+
+    parser.add_argument("-I", "--input-formats",
         help="comma separated formats of input video files",
         metavar="FMT1,FMT2,...", type=parse_input_formats,
         default=INPUT_FORMATS)
 
-    parser.add_argument("--output-format", help="format of output videos",
+    parser.add_argument("-O", "--output-format", help="format of output videos",
         metavar="FMT", type=parse_output_format, default=OUTPUT_FORMAT)
 
-    parser.add_argument("--video-encoder", help="video encoder to use",
+    parser.add_argument("-v", "--video-encoder", help="video encoder to use",
         metavar="ENC", type=str, default=VIDEO_ENCODER)
 
-    parser.add_argument("--audio-encoder", help="audio encoder to use",
+    parser.add_argument("-a", "--audio-encoder", help="audio encoder to use",
         metavar="ENC", type=str, default=AUDIO_ENCODER)
 
     parser.add_argument("--tolerance",
         help="input dimension tolerance", metavar="TOL",
         type=parse_tolerance, default=TOLERANCE)
 
-    parser.add_argument("--dimensions",
-        help="comma separated dimensions of output videos",
-        metavar="W1xH1,W2xH2,...", type=parse_dimensions,
-        default=DIMENSIONS)
+    parser.add_argument("--resolutions",
+        help="comma separated resolutions of output videos",
+        metavar="R1,R2,...", type=parse_resolutions,
+        default=RESOLUTIONS)
 
-    parser.add_argument("--faststart",
-        help="move metdata to begin of file for fast loading in web players",
-        action="store_true", default=FASTSTART)
+    parser.add_argument("-b", "--batch",
+        help="encode all resolutions in parallel",
+        action="store_true", default=BATCH)
 
-    parser.add_argument("--upscale",
+    parser.add_argument("-u", "--upscale",
         help="generate resolutions higher than resolution of original video",
         action="store_true", default=UPSCALE)
 
-    parser.add_argument("--copy-original",
-        help="copy original video",
-        action="store_true", default=COPY_ORIGINAL)
+    parser.add_argument("-s", "--faststart",
+        help="move metdata to begin of file for fast loading in web players",
+        action="store_true", default=FASTSTART)
+
+    parser.add_argument("-c", "--copy-original",
+        help="copy original video", action="store_true", default=COPY_ORIGINAL)
 
     parser.add_argument("--ffmpeg-dir",
         help="path of FFmpeg binary executable files",
@@ -804,42 +947,53 @@ def parse_args():
         help="suffix of FFmpeg binary executable files",
         metavar="SFX", type=str, default=FFMPEG_SUFFIX)
 
-    parser.add_argument("--logging-level", help="logging level",
-        metavar="LEVEL", type=parse_logging_level,
-        default=LOGGER_LEVEL)
+    parser.add_argument("-l", "--logging-level", help="logging level",
+        metavar="LEVEL", type=parse_logging_level, default=LOGGING_LEVEL)
 
-    parser.add_argument("--version", action="version",
+    parser.add_argument("-V", "--version", action="version",
         help="print the version number and exit", version=__version__)
 
     return parser.parse_args()
 
+#==============================================================================
+# main function
+#------------------------------------------------------------------------------
+# Initialize command-line argument parser, loggers, searchs input videos
+# and encoder them.
+#==============================================================================
 
 def main():
     args = parse_args()
     setup_logger(args)
 
+    if args.defaults:
+        show_defaults()
+        sys.exit()
+
     logger.info("=" * 72)
-    logger.info("%sS T A R T" % (" " * 32))
+    logger.info("%22sS T A R T   E N C O D I N G" % "")
     logger.info("=" * 72)
-    # TODO: check for input_dirs to not overlap (e.g. one is subfolder of other)
+
+    # TODO: check for input_dirs to not overlap (e.g. one is subfolder
+    #       of other)
     if args.output_dir in args.input_dirs:
-        logger.error("output directory is same with one of input directories.")
+        logger.info("output directory is same with one of input directories.")
+        args.input_dirs.remove(args.output_dir)
+        logger.info("Output directory removed form input directories")
+    sources = scan_sources(args)
+    for md5, source in sources.items():
+        source.process()
 
-    for source in scan_source_videos(args):
-        source.encode()
-
-    logger.info("Done!")
-
+#==============================================================================
+# Application code
+#------------------------------------------------------------------------------
+# Calls main function.
+#==============================================================================
 
 if __name__ == "__main__":
-    try:
-        start_datetime = datetime.datetime.now()
-        main()
-        elapsed = datetime.datetime.now() - start_datetime
-        seconds = elapsed.seconds % 60 + elapsed.microseconds / 1000000
-        minutes = (elapsed.seconds // 60) % 60
-        hours = (elapsed.seconds // 60) // 60
-        logger.info("Overall elapsed time: %d:%02d:%.03f hours" \
-            % (hours, minutes, seconds))
-    except KeyboardInterrupt:
-        pass
+    ellapsed = seconds_to_str(ellapsed_seconds(main))
+    logger.info("-" * 72)
+    logger.info("Total ellapsed time: %s" % ellapsed)
+    logger.info("-" * 72)
+
+# vim:showmatch:tw=80:ts=4:sts=4:sw=4:autoindent:smartindent:smarttab:expandtab
