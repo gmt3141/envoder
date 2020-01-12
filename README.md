@@ -9,6 +9,7 @@
 
 ---
 
+`-h`
 `--help`
 
 Prints help message and exit
@@ -28,7 +29,8 @@ will be searched for input video files
 
 ---
 
-`-o DIR, --output-dir DIR`
+`-o DIR`
+`--output-dir DIR`
 
 Output directory to store encoded videos.
 
@@ -39,7 +41,8 @@ Default value is ./encoded_videos
 
 ---
 
-`-r, --recursive`
+`-r`
+`--recursive`
 
 Use this to search sub-directories within the input directories.
 
@@ -47,7 +50,8 @@ Default behaviour is not rescurse into sub-directories.
 
 ---
 
-`-w, --overwrite`
+`-w`
+`--overwrite`
 
 Use this if you want to overwrite existing files.
 
@@ -55,6 +59,25 @@ Default behaviour is not overwrite existing files.
 
 ---
 
+`-t`
+`--shared-tags`
+
+If a directory has more than one video and there are just one tag file, use that tag file for all videos.
+
+Default behaviour is not share tags file.
+
+---
+
+`-d`
+`--shared-description`
+
+If a directory has more than one video and there are just one descriptin file, use that description file for all videos.
+
+Default behaviour is not share description file.
+
+---
+
+`-I FMT1,FMT2`
 `--input-formats FMT1,FMT2,...`
 
 Comma separated list of video formats to process. Other file formats in the
@@ -64,6 +87,7 @@ Default input formats are *avi*, *mkv*, *m4v*, *mp4*, *mpg*, *vp9* and *wmv*
 
 ---
 
+`-O FMT`
 `--output-format FMT`
 
 Target format for converted videos. Use one of 'mp4', 'mkv', or
@@ -73,6 +97,7 @@ Default output format is *mp4*
 
 ---
 
+`-v ENC`
 `--video-encoder ENC`
 
 Video encoder to use. Use one of *h264*, *x264*, *h264*, *mpeg4* variants
@@ -86,6 +111,7 @@ Default video encoder is *libx264*.
 
 ---
 
+`-a ENC`
 `--audio-encoder ENC`
 
 Audio encoder to use. Use one of *mp3*, *aac*, *ogg* variants for VODs.
@@ -123,14 +149,31 @@ Default tolerance is *0.1*.
 
 ---
 
-`--dimensions W1xH1,W2xH2,...`
+`--resolutions R1,R2,...`
 
-The width and height of the output video, in the format '1280x720'.
-On the command line, specify as '-d 1280x720'. You can convert one
-file to multiple resolutions with sparating resolutions with comma.
+The height of the output video. On the command line, specify as
+'-d 720,480'. You can convert one file to multiple resolutions
+with sparating resolutions with comma.
 
-Default dimensions are *7680x4320*, *3840x2160*, *2560x1440*,
-*1920x1080*, *1280x720*, *854x480*, *640x360*, *426x240*, *256x144*.
+Default dimensions are *1080*, *720*, *560*, *480*, *360*, *240*, *180*.
+
+---
+
+`-b`
+`--batch`
+
+Encode a video to all target resolutions in one step.
+
+Default behavious is encode to target reslutions one by one.
+
+---
+
+
+`--upscale`
+
+Use this to upscale videos to higher resolutions.
+
+Default behaviour is not to upscale to higher resolutions.
 
 ---
 
@@ -147,14 +190,7 @@ Default behaviour is to not add use these option.
 
 ---
 
-`--upscale`
-
-Use this to upscale videos to higher resolutions.
-
-Default behaviour is not to upscale to higher resolutions.
-
----
-
+`-c`
 `--copy-original`
 
 Use this to copy original videos to target directories.
@@ -196,6 +232,7 @@ Default behaviour is using **FFmpeg** binaries without suffix.
 
 ---
 
+`-l LEVEL`
 `--logging-level LEVEL`
 
 The minimum severity for an event to be logged on console. Levels
@@ -206,6 +243,7 @@ Default severity is *info*
 
 ---
 
+`-V`
 `--version`
 
 Prints the version number and exit
