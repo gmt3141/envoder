@@ -71,7 +71,8 @@ Default behaviour is not share tags file.
 `-d`
 `--shared-description`
 
-If a directory has more than one video and there are just one descriptin file, use that description file for all videos.
+If a directory has more than one video and there are just one descriptin
+file, use that description file for all videos.
 
 Default behaviour is not share description file.
 
@@ -168,7 +169,7 @@ Default behavious is encode to target reslutions one by one.
 
 ---
 
-
+`-u`
 `--upscale`
 
 Use this to upscale videos to higher resolutions.
@@ -177,6 +178,7 @@ Default behaviour is not to upscale to higher resolutions.
 
 ---
 
+`-s`
 `--faststart`
 
 You can add `-movflags +faststart` as an output option if your videos are
