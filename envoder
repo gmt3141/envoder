@@ -150,10 +150,10 @@ LOGO_POSITION = 10, 10
 # Size of logo/watermark
 #
 # Size of logo/watermark (One or two numbers as percent). If two
-# numbers numbers specified, they will be used for width and height
-# respectively. If one number specified, it will be used for width and
-# height will be calculated using image aspect retio. If one of numbers
-# is zero, other dimension will be calculated using image aspect ratio.
+# numbers specified, they will be used for width and height respectively.
+# If one number specified, it will be used for width and height will be
+# calculated using image aspect retio. If one of numbers is zero, other
+# dimension will be calculated using image aspect ratio.
 #
 # On the command line, specify as '--logo-size 20,10'
 LOGO_SIZE = 10, 0
