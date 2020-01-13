@@ -16,6 +16,19 @@ Prints help message and exit
 
 ---
 
+`-D`
+`--defaults`
+
+Show default values for command line input arguments and exit.
+
+---
+
+`--dry-run`
+
+Run script without executing `ffmpeg` (encoding step).
+
+---
+
 `-i DIR:DIR2:...`
 `--input-dirs DIR:DIR2:...`
 
@@ -75,6 +88,53 @@ If a directory has more than one video and there are just one descriptin
 file, use that description file for all videos.
 
 Default behaviour is not share description file.
+
+---
+
+`-g LOGO`
+`--logo LOGO`
+
+Add an image file as logo/watermark to all encoded videos. You can control
+logo/watermark transparency, position and size using `--logo-transparency`,
+`--logo-position` and `--logo-size` respectively.
+
+Default behaviour is do not add logo to encoded videos.
+
+---
+
+`--logo-transparency NUM`
+
+Transparency of logo/watermark (percent). It accepts an integer number in
+0..100 range.
+
+Default value is 50 when you specify logo/watermark image file using `-g LOGO`
+or `--logo LOGO` option.
+
+---
+
+`--logo-position X,Y`
+
+Position of logo/watermark (One or two numbers as percent). If two numbers
+specified, they will be used for x and y positions respectively. If one
+number specified, it will be used for both x and y.
+
+Default value is 10,10 (X = 0.1 x video_width and Y = 0.1 x video_height)
+when you specify logo/watermark image file using `-g LOGO` or `--logo LOGO`
+option.
+
+---
+
+`--logo-size W,H`
+
+Size of logo/watermark (One or two numbers as percent). If two numbers
+specified, they will be used for width and height respectively. If one
+number specified, it will be used for width and height will be calculated
+using image aspect retio. If one of numbers is zero, other dimension will
+be calculated using image aspect ratio.
+
+Default value is 10,10 (W = 0.1 x video_width and H = 0.1 x video_height)
+when you specify logo/watermark image file using `-g LOGO` or `--logo LOGO`
+option.
 
 ---
 
@@ -231,6 +291,15 @@ For above **FFmpeg** binaries use `-4.2.1`, `-3.1.0` or `-dev`
 respectively.
 
 Default behaviour is using **FFmpeg** binaries without suffix.
+
+---
+
+`--show-commands`
+
+Show executed `ffprobe` and `ffmpeg` commands with all of their
+command line arguments.
+
+Default behaviour is not showing commands.
 
 ---
 
