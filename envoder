@@ -123,6 +123,41 @@ SHARED_TAGS = False
 # On the command line, specify as '-d' or '--shared-description'.
 SHARED_DESCRIPTION = False
 
+# Logo/Watermark
+#
+# An image file to add to add to encoded videos as logo/watermark
+#
+# On the command line, specify as '-g logo.png' or '--logo logo.png'
+LOGO = None
+
+# Logo transparency
+#
+# Transparency of logo/watermark (An integer number between 0 and 100)
+#
+# On the command line, specify as '--logo-transparency 60'.
+LOGO_TRANSPARENCY = 50
+
+# Logo/Watermark position
+#
+# Position of logo/watermark (One or two numbers as percent). If two
+# numbers specified, they will be used for x and y positions
+# respectively. If one number specified, it will be used for both x
+# and y.
+#
+# On the command line, specify as '--logo-position 20,15'
+LOGO_POSITION = 10, 10
+
+# Size of logo/watermark
+#
+# Size of logo/watermark (One or two numbers as percent). If two
+# numbers numbers specified, they will be used for width and height
+# respectively. If one number specified, it will be used for width and
+# height will be calculated using image aspect retio. If one of numbers
+# is zero, other dimension will be calculated using image aspect ratio.
+#
+# On the command line, specify as '--logo-size 20,10'
+LOGO_SIZE = 10, 0
+
 # List of video formats to process. Other file formats in the input
 # directories will be ignored.
 #
@@ -224,6 +259,13 @@ else:
 # On the command line specify as '--ffmpeg-suffix -4.2.1'
 FFMPEG_SUFFIX = ""
 
+# Show commands
+#
+# Dump executed commands with its arguments.
+#
+# On the command line, specify as '--show-commands'
+SHOW_COMMANDS = False
+
 # The minimum severity for an event to be logged to console. Levels from
 # least severe to most servere are 'debug', 'info', 'warning', 'error',
 # and 'critical'.
@@ -240,7 +282,9 @@ LOGGING_LEVEL = logging.INFO
 
 # Define the global arguments to pass to FFmpeg.
 FFMPEG_ARGS = [
-    "-y"
+    "-y",
+    "-hide_banner",
+    "-loglevel", "panic"
 ]
 
 # Define the global arguments to pass to FFPROBE.
@@ -440,30 +484,76 @@ class Source:
         else:
             subtitle_options = []
 
+        filters = ""
+        if self._args.logo is not None:
+            input_options += ["-i", self._args.logo]
+
+            x = round(self._args.logo_position[0] * self._width / 100)
+            y = round(self._args.logo_position[1] * self._height / 100)
+            alpha = self._args.logo_transparency / 100
+            # select overlay stram
+            if self._srt_file:
+                filters += "[2:v]"
+            else:
+                filters += "[1:v]"
+            w = h = -2
+            if self._args.logo_size[0] != 0:
+                w = round(self._args.logo_size[0] * self._width / 100)
+            if self._args.logo_size[1] != 0:
+                h = round(self._args.logo_size[1] * self._height / 100)
+            # scale overlay
+            filters += "scale=%d:%d," % (w, h)
+            # apply transparency
+            filters += "format=argb,geq=r='r(X,Y)':a='%.2f*alpha(X,Y)'" \
+                       "[zork];" % alpha
+            # position overlay
+            filters += "[0:v][zork]overlay=x=%d:y=%d," % (x, y)
+
+            # map filter_complex to all output videos
+            filters += "split=%d" % len(jobs)
+            filters += "".join(["[out%d]" % (j+1) for j in range(len(jobs))])
+
         options = []
+        if filters != "":
+            options += ["-filter_complex", "\"%s\"" % filters]
+
+        n_out = 0
         for resolution, target_path in jobs:
+            n_out += 1
             if len(jobs) > 1:
                 logger.info("Batch encode -> %s" % target_path)
-            options += subtitle_options + [
-                "-c:v", self._args.video_encoder,
-                "-filter:v", "scale=-2:%d" % resolution
-            ]
+            if self._args.logo is not None:
+                options += ["-map", "'[out%d]'" % n_out]
+            h = resolution
+            w = int(h * (self._width / self._height))
+            if w % 2 == 1: # width must be an even number
+                w += 1
+            options += ["-s", "%dx%d" % (w, h)]
+            options += subtitle_options
             if self._args.faststart:
                 options += ["-movflags", "+faststart"]
-            options += ["-c:a", self._args.audio_encoder]
-            options += ["-f", self._args.output_format, target_path]
+            options += [
+                "-c:v", self._args.video_encoder,
+                "-c:a", self._args.audio_encoder,
+                "-f", self._args.output_format,
+                target_path
+            ]
 
         arg_list = [ffmpeg] + FFMPEG_ARGS + input_options + options
-        process = subprocess.run(arg_list, text=True, capture_output=True)
-        try:
-            stdout = process.stdout
-        except:
-            raise Error()
-        retcode = process.returncode
-        if retcode != 0:
-            #print(" ".join(arg_list))
-            logger.error("Error encoding")
-            raise subprocess.CalledProcessError(retcode, arg_list)
+        if self._args.show_commands:
+            logger.info(" ".join(arg_list))
+
+        if not self._args.dry_run:
+            try:
+                #process = subprocess.run(arg_list, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                os.system(" ".join(arg_list))
+                #stdout, stderr = process.communicate()
+            except:
+                raise Error()
+            #retcode = process.returncode
+            #if retcode != 0:
+            #    logger.error("Error encoding")
+            #    raise subprocess.CalledProcessError(retcode, arg_list)
 
     def _copy_files(self):
         if self._args.copy_original:
@@ -521,14 +611,17 @@ class Source:
                                    "ffprobe%s" % self._args.ffmpeg_suffix)
 
         arg_list = [ffprobe] + FFPROBE_ARGS + [self._video_file]
-        process = subprocess.run(arg_list, text=True, capture_output=True)
+        if self._args.show_commands:
+            logger.info(" ".join(arg_list))
+
         try:
-            width, height, duration = process.stdout.strip().split()
+            process = subprocess.Popen(arg_list, stdout=subprocess.PIPE)
+            stdout, stderr = process.communicate()
+            width, height, duration = stdout.strip().split()
             self._width = int(width)
             self._height = int(height)
             self._duration = round(float(duration))
         except:
-            #print (" ".join(arg_list))
             logger.error("Error processing video dimensions: '%s'" \
                          % self._video_file)
         retcode = process.returncode
@@ -645,13 +738,14 @@ def scan_sources(args):
 
 def show_defaults():
     pr = lambda s: print(s, file=sys.stderr)
-    pr1 = lambda s: pr("     - %s" % s)
+    pr1 = lambda s: pr("%s* %s" % (" " * 30, s))
     pr2 = lambda s1, s2: pr("{:<30}{}".format(s1, s2))
     b = lambda v: {True: "yes", False: "no"}[v]
 
     pr("")
     pr2("-h, --help", b(False))
     pr2("-D, --defaults", b(False))
+    pr2("    --dry-run", b(False))
     pr("-i, --input-directories")
     for d in INPUT_DIRECTORIES:
         pr1(d)
@@ -660,34 +754,39 @@ def show_defaults():
     pr2("-w, --overwrite", b(OVERWRITE))
     pr2("-t, --shared-tags", b(SHARED_TAGS))
     pr2("-d, --shared-description", b(SHARED_DESCRIPTION))
+    pr2("-g, --logo", LOGO)
+    pr2("    --logo-transparency", "%d%%" % LOGO_TRANSPARENCY)
+    pr2("    --logo-position", ", ".join(["%d%%" % p for p in LOGO_POSITION]))
+    pr2("    --logo-size", ", ".join(["%d%%" % s for s in LOGO_SIZE]))
     pr2("-I, --input-formats", ", ".join([f for f in INPUT_FORMATS]))
     pr2("-O, --output-format", OUTPUT_FORMAT)
     pr2("-v, --video-encoder", VIDEO_ENCODER)
     pr2("-a, --audio-encoder", AUDIO_ENCODER)
-    pr2("--tolerance", TOLERANCE)
-    pr2("--resolutions", ", ".join([str(r) for r in RESOLUTIONS]))
+    pr2("    --tolerance", TOLERANCE)
+    pr2("    --resolutions", ", ".join([str(r) for r in RESOLUTIONS]))
     pr2("-b, --batch", b(BATCH))
     pr2("-u, --upscale", b(UPSCALE))
     pr2("-s, --faststart", b(FASTSTART))
     pr2("-c, --copy-original", b(COPY_ORIGINAL))
-    pr2("--tolerance", TOLERANCE)
-    pr2("--ffmpeg-dir", FFMPEG_DIR)
-    pr2("--ffmpeg-suffix", FFMPEG_SUFFIX)
+    pr2("    --tolerance", TOLERANCE)
+    pr2("    --ffmpeg-dir", FFMPEG_DIR)
+    pr2("    --ffmpeg-suffix", FFMPEG_SUFFIX)
+    pr2("    --show_commands", b(SHOW_COMMANDS))
     if LOGGING_LEVEL == logging.DEBUG:
-        pr2("--logging-level", "notset")
+        pr2("    --logging-level", "notset")
     elif LOGGING_LEVEL == logging.NOTSET:
-        pr2("--logging-level", "debug")
+        pr2("    --logging-level", "debug")
     elif LOGGING_LEVEL == logging.INFO:
-        pr2("--logging-level", "info")
+        pr2("    --logging-level", "info")
     elif LOGGING_LEVEL == logging.WARNING:
-        pr2("--logging-level", "warning")
+        pr2("    --logging-level", "warning")
     elif LOGGING_LEVEL == logging.ERROR:
-        pr2("--logging-level", "error")
+        pr2("    --logging-level", "error")
     elif LOGGING_LEVEL == logging.CRITICAL:
-        pr2("--logging-level", "critical")
+        pr2("    --logging-level", "critical")
     else:
-        pr2("--logging-level", "invalid value")
-    pr2("--version", __version__)
+        pr2("    --logging-level", "invalid value")
+    pr2("    --version", __version__)
     pr("")
 
 #==============================================================================
@@ -775,6 +874,59 @@ def parse_input_formats(value):
     return input_formats
 
 
+def parse_logo(value):
+    logo_path = os.path.abspath(os.path.expanduser(value))
+    if not os.path.exists(logo_path):
+        raise ArgError("Logo file does not exists: %s" % value)
+    return logo_path
+
+
+def parse_logo_transparency(value):
+    if not value.isnumeric():
+        raise ArgError("Not a number: %s" % value)
+    transparency = int(value)
+    if transparency < 0 or transparency > 100:
+        raise ArgError("Bad value for transparency (must be in 0..100 "
+                       "range): %s" % value)
+    return transparency
+
+
+def parse_logo_position(value):
+    values = value.split(",")
+    if len(values) > 2:
+        raise ArgError("Too many values (must be one or two value): %s" % value)
+    position = []
+    for val in values:
+        if not val.isnumeric():
+            raise ArgError("Not a number: %s" % val)
+        aval = int(val)
+        if aval < 0 or aval > 100:
+            raise ArgError("Bad value for position (must be in 0..100 "
+                           "range): %s" % val)
+        positions.append(aval)
+    if len(positions) == 1:
+        positions.append(positions[0])
+    return tuple(positions)
+
+
+def parse_logo_size(value):
+    values = value.split(",")
+    if len(values) > 2:
+        raise ArgError("Too many values (must be one or two value): %s" % value)
+    size = []
+    for val in values:
+        if not val.isnumeric():
+            raise ArgError("Not a number: %s" % val)
+        aval = int(val)
+        if aval < 0 or aval > 100:
+            raise ArgError("Bad value for position (must be in 0..100 "
+                           "range): %s" % val)
+        size.append(aval)
+    if len(size) == 1:
+        size.append(size[0])
+    return tuple(size)
+
+
 def parse_output_format(value):
     if value.startswith("."):
         raise ArgError("Do not specify the leading '.' on output format")
@@ -832,6 +984,9 @@ def parse_args():
         help="show default value of all arguments and exit",
         action="store_true", default=False)
 
+    parser.add_argument("--dry-run", help="run script without encode",
+        action="store_true", default=False)
+
     parser.add_argument("-i", "--input-dirs",
         help="input directories separated by '%s' character" % os.path.pathsep,
         metavar="DIR%sDIR2%s..." % (os.path.pathsep, os.path.pathsep),
@@ -860,6 +1015,21 @@ def parse_args():
         help="comma separated formats of input video files",
         metavar="FMT1,FMT2,...", type=parse_input_formats,
         default=INPUT_FORMATS)
+
+    parser.add_argument("-g", "--logo",
+        help="image file to add to encoded videos as logo/watermark",
+        metavar="LOGO", type=parse_logo, default=LOGO)
+
+    parser.add_argument("--logo-transparency",
+        help="logo/watermark transparency (0..100)",
+        metavar="NUM", type=parse_logo_transparency, default=LOGO_TRANSPARENCY)
+
+    parser.add_argument("--logo-position",
+        help="position of logo/watermark (percent)",
+        metavar="X,Y", type=parse_logo_position, default=LOGO_POSITION)
+
+    parser.add_argument("--logo-size", help="logo size (percent)",
+        metavar="W,H", type=parse_logo_size, default=LOGO_SIZE)
 
     parser.add_argument("-O", "--output-format", help="format of output videos",
         metavar="FMT", type=parse_output_format, default=OUTPUT_FORMAT)
@@ -901,6 +1071,9 @@ def parse_args():
     parser.add_argument("--ffmpeg-suffix",
         help="suffix of FFmpeg binary executable files",
         metavar="SFX", type=str, default=FFMPEG_SUFFIX)
+
+    parser.add_argument("--show-commands", help="show executed commands",
+        action='store_true', default=SHOW_COMMANDS)
 
     parser.add_argument("-l", "--logging-level", help="logging level",
         metavar="LEVEL", type=parse_logging_level, default=LOGGING_LEVEL)
